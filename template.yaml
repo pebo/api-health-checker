@@ -1,0 +1,31 @@
+﻿AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: Performs a periodic check of the given api, reporting to slack on errors
+Parameters:
+    ApiKey:
+        Type: String
+    TargetUrl:
+        Type: String
+    SlackUrl:
+        Type: String
+
+Resources:
+  apiHealthChecker:
+    Type: 'AWS::Serverless::Function'
+    Properties:
+      Handler: index.handler
+      Runtime: nodejs8.10
+      CodeUri: ./src
+      Description: 'Performs a periodic check of the given endpoint'
+      MemorySize: 128
+      Timeout: 10
+      Events:
+        Schedule1:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
+      Environment:
+        Variables:
+          apiKey: !Ref ApiKey
+          targetUrl: !Ref TargetUrl
+          slackUrl: !Ref SlackUrl
