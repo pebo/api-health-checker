@@ -1,3 +1,4 @@
+// @ts-check
 'use strict'
 
 const rp = require('request-promise-native').defaults({
@@ -24,7 +25,35 @@ function readConfig() {
 
 const config = readConfig()
 
-exports.handler = function (event, context) {
+async function sendSlackNotification(statusCode, message) {
+    try {
+        const response = await rp({
+            uri: config.slackUrl,
+            method: 'POST',
+            headers: {
+                'Content-type': 'application/json'
+            },
+            body: {
+                username: 'AWS Health Checker',
+                text: '*Health check failed*\n' +
+                    'Target: ' + config.targetUrl + '\n' +
+                    'status code: ' + statusCode +
+                    '\nbody:' + message,
+                icon_emoji: ':aws:'
+            }
+        })
+        if (!(response.statusCode >= 200 && response.statusCode < 300)) {
+            console.error('Failed to notify slack', response)
+        } else {
+            console.log('slack notification successful')
+        }
+    } catch (err) {
+        console.error('Slack communication error', err)
+    }
+}
+
+
+exports.handler = async function (event, context) {
 
     const options = {
         uri: config.targetUrl,
@@ -34,45 +63,25 @@ exports.handler = function (event, context) {
         }
     }
 
-    rp(options)
-        .then(response => {
-            console.log('code:', response.statusCode, 'body:', response.body)
-            if (response.statusCode >= 200 && response.statusCode < 300) {
-                // OK
-                return Promise.resolve(null)
-            } else {
-                console.error('Failed checking:', config.targetUrl)
-                return rp({
-                    uri: config.slackUrl,
-                    method: 'POST',
-                    headers: {
-                        'Content-type': 'application/json'
-                    },
-                    body: {
-                        username: 'AWS Health Checker',
-                        text: '*Health check failed*\n' +
-                            'Target: ' + config.targetUrl + '\n' +
-                            'status code: ' + (response ? response.statusCode : null) +
-                            '\nbody:' + (response ? JSON.stringify(response.body) : null),
-                        icon_emoji: ':aws:'
-                    }
-                })
-            }
+    try {
+        const response = await rp(options)
+        console.log('code:', response.statusCode, 'body:', response.body)
+        if (response.statusCode >= 200 && response.statusCode < 300) {
+            return 'OK from Lambda'
+        } else {
+            // HTTP / API error
+            console.error('Failed checking:', config.targetUrl)
+
+            const statusCode = response ? response.statusCode : null
+            const message = response ? JSON.stringify(response.body) : null
+            await sendSlackNotification(statusCode, message)
+            return 'Failed from Lambda'
         }
-        )
-        .then(response => {
-            if (response) {
-                if (!(response.statusCode >= 200 && response.statusCode < 300)) {
-                    console.error('Failed to notify slack', response)
-                } else {
-                    console.log('slack notification successful')
-                }
-                context.done(null, 'Failed from Lambda')
-            } else {
-                context.done(null, 'OK from Lambda')
-            }
-        })
-        .catch(err => {
-            console.error('status check failed', err)
-        })
+
+    } catch (err) {
+        console.error('Network error checking:' + config.targetUrl, err)
+        await sendSlackNotification(-1, 'Network error checking:' + config.targetUrl +":" + err)
+        return err
+    }
+
 }
