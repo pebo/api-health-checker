@@ -1,4 +1,5 @@
 *.env
+*health-checker.json
 output.yml
 output.yaml
 
